@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>光与暗 · 控件集</title>
+<style>
+  :root {
+    --p: 0; --glow: 108 120 255;
+    --ink:  color-mix(in srgb, #eef0f7 calc((1 - var(--p)) * 100%), #3a3531);
+    --mute: color-mix(in srgb, rgba(255,255,255,.36) calc((1 - var(--p)) * 100%), rgba(64,54,44,.55));
+  }
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; overflow-x: clip; }
+  body {
+    background: #0b0c10; color: var(--ink);
+    font: 15px/1.4 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
+  }
+  .bg { position: fixed; inset: 0; z-index: -1; }
+  .bg.dark  { background: radial-gradient(120% 90% at 50% 40%, #17181e 0%, #0c0d11 55%, #060609 100%); }
+  .bg.light { background: radial-gradient(120% 90% at 50% 35%, #ebe8e4 0%, #dcd8d3 60%, #cfcbc5 100%); opacity: var(--p); }
+
+  /* ---- layout ---- */
+  .board { max-width: 900px; margin: 0 auto; padding: 36px 24px 48px; display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
+  .head { grid-column: 1 / -1; text-align: center; font-size: 12px; letter-spacing: .4em; color: var(--mute); }
+  .cell { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; min-height: 176px; padding: 26px 0; margin: 0; }
+  .cell.hero { grid-column: 1 / -1; min-height: 270px; }
+  .cell.tall { grid-row: span 2; }
+  .cell figcaption { font-size: 11px; letter-spacing: .32em; color: var(--mute); user-select: none; }
+  .row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; justify-content: center; }
+  .col { display: flex; flex-direction: column; gap: 16px; }
+  @media (max-width: 760px) {
+    .board { grid-template-columns: 1fr; padding: 28px 16px 40px; }
+    .cell.tall { grid-row: auto; }
+  }
+
+  /* ---- materials: every surface is a dark layer with a light layer faded over it ---- */
+  .lit { position: relative; isolation: isolate; --d: 1; }
+  .fx { position: absolute; z-index: 2; pointer-events: none; }
+  .raised::before, .raised::after, .well::before, .well::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0;
+  }
+  .raised::before {                               /* dark: frosted glass */
+    opacity: calc(1 - var(--p));
+    background: linear-gradient(165deg, rgba(255,255,255,.24), rgba(255,255,255,.09) 55%, rgba(255,255,255,.14));
+    box-shadow: inset 0 0 0 1.5px rgba(255,255,255,.22), inset 0 1.5px 0 rgba(255,255,255,.26),
+                0 calc(10px * var(--d)) calc(26px * var(--d)) rgba(0,0,0,.55);
+  }
+  .raised.soft::before {
+    background: linear-gradient(165deg, rgba(255,255,255,.105), rgba(255,255,255,.035) 55%, rgba(255,255,255,.06));
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), inset 0 1.5px 0 rgba(255,255,255,.14),
+                0 calc(14px * var(--d)) calc(34px * var(--d)) rgba(0,0,0,.5);
+  }
+  .raised::after {                                /* light: solid porcelain */
+    opacity: var(--p);
+    background: linear-gradient(180deg, #fefdfc, #efece8);
+    box-shadow: inset 0 1.5px 0 #fff, inset 0 calc(-6px * var(--d)) calc(10px * var(--d)) rgba(120,105,90,.08),
+                0 calc(12px * var(--d)) calc(20px * var(--d)) rgba(70,58,45,.24), 0 2px 5px rgba(70,58,45,.18);
+  }
+  .raised.soft::after {
+    background: linear-gradient(180deg, #f1eeea, #e6e2dd);
+    box-shadow: inset 0 1.5px 0 rgba(255,255,255,.9),
+                0 calc(12px * var(--d)) calc(24px * var(--d)) rgba(70,58,45,.2), 0 2px 5px rgba(70,58,45,.12);
+  }
+  .well::before {                                 /* dark: black groove */
+    background: linear-gradient(180deg, #030304, #09090c);
+    box-shadow: inset 0 calc(8px * var(--d)) calc(18px * var(--d)) rgba(0,0,0,.95), inset 0 0 0 1px rgba(0,0,0,.6),
+                0 1.5px 0 rgba(255,255,255,.07), 0 0 0 calc(5px * var(--d)) rgba(255,255,255,.012),
+                0 calc(18px * var(--d)) calc(40px * var(--d)) rgba(0,0,0,.45);
+  }
+  .well::after {                                  /* light: soft pressed-in tray */
+    opacity: var(--p);
+    background: linear-gradient(180deg, #e0ddd9, #eceae7);
+    box-shadow: inset 0 calc(4px * var(--d)) calc(10px * var(--d)) rgba(80,68,55,.22), inset 0 -2px 3px rgba(255,255,255,.95),
+                0 0 0 1px rgba(255,255,255,.35),
+                calc(8px * var(--d)) calc(14px * var(--d)) calc(28px * var(--d)) rgba(80,68,55,.22),
+                calc(-6px * var(--d)) calc(-6px * var(--d)) calc(16px * var(--d)) rgba(255,255,255,.55);
+  }
+  .well.flat::before { box-shadow: inset 0 calc(8px * var(--d)) calc(18px * var(--d)) rgba(0,0,0,.95), inset 0 0 0 1px rgba(0,0,0,.6), 0 1.5px 0 rgba(255,255,255,.07); }
+  .well.flat::after  { box-shadow: inset 0 calc(4px * var(--d)) calc(10px * var(--d)) rgba(80,68,55,.22), inset 0 -2px 3px rgba(255,255,255,.95), 0 0 0 1px rgba(255,255,255,.35); }
+
+  button { font: inherit; color: inherit; padding: 0; border: 0; background: none; cursor: pointer; touch-action: manipulation; }
+  :focus, .field input:focus-visible { outline: none; }
+  :focus-visible, .seg label:has(:focus-visible), .check:has(:focus-visible) .box, .strack:has(:focus-visible) {
+    outline: 2px solid rgb(var(--glow) / .75); outline-offset: 4px;
+  }
+  .knob { position: absolute; left: 0; z-index: 1; will-change: transform, width; pointer-events: none; }
+
+  /* ---- switch ---- */
+  .switch { --k: .75; --d: var(--k); width: calc(440px * var(--k)); height: calc(228px * var(--k)); border-radius: calc(64px * var(--k)); }
+  .switch .knob { top: calc(16px * var(--k)); width: calc(196px * var(--k)); height: calc(196px * var(--k)); border-radius: calc(52px * var(--k)); }
+  @media (max-width: 420px) { .switch { --k: .62; } }
+
+  /* ---- buttons ---- */
+  .btn { --d: .45; --press: 0; height: 52px; padding: 0 30px; border-radius: 18px; letter-spacing: .1em;
+         transform: translateY(calc(var(--press) * 1.5px)) scale(calc(1 - var(--press) * .03)); }
+  .btn > span { position: relative; z-index: 3; }
+  .btn.icon { width: 52px; padding: 0; }
+
+  /* ---- slider ---- */
+  .slider { display: flex; align-items: center; gap: 18px; }
+  .strack { --d: .4; width: 250px; height: 48px; border-radius: 17px; }
+  .strack .knob { --d: .6; top: 6px; width: 36px; height: 36px; border-radius: 11px; }
+  .strack input { position: absolute; z-index: 3; left: 6px; top: 0; width: calc(100% - 12px); height: 100%; margin: 0; opacity: 0; cursor: pointer; -webkit-appearance: none; appearance: none; }
+  .strack input::-webkit-slider-thumb { -webkit-appearance: none; width: 36px; height: 48px; }
+  .strack input::-moz-range-thumb { width: 36px; height: 48px; border: 0; }
+  .readout { width: 44px; height: 20px; }
+
+  /* ---- field ---- */
+  .field { --d: .4; display: block; width: min(300px, 100%); height: 48px; border-radius: 17px; cursor: text; }
+  .field input { position: relative; z-index: 3; width: 100%; height: 100%; padding: 0 20px; border: 0; background: none;
+                 font: inherit; color: var(--ink); caret-color: rgb(var(--glow)); letter-spacing: .04em; }
+  .field input::placeholder { color: var(--mute); }
+
+  /* ---- checkbox ---- */
+  .check { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+  .check input { position: absolute; opacity: 0; pointer-events: none; }
+  .check .box { --d: .3; width: 28px; height: 28px; border-radius: 9px; flex: none; }
+  .check .txt { color: var(--mute); transition: color .25s; }
+  .check:has(:checked) .txt { color: var(--ink); }
+
+  /* ---- card + segmented ---- */
+  .card { --d: 1.1; width: min(340px, 100%); padding: 20px 24px 26px; border-radius: 30px; }
+  .card > :not(.fx) { position: relative; z-index: 3; }
+  .card .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 26px; }
+  .card .ttl { letter-spacing: .08em; }
+  .card .ttl small { display: block; margin-top: 2px; font-size: 11px; letter-spacing: .2em; color: var(--mute); }
+  .card canvas.chart { display: block; width: 290px; max-width: 100%; }
+  .seg { --d: .32; display: flex; height: 40px; padding: 0 5px; border-radius: 14px; }
+  .seg .knob { --d: .5; top: 5px; width: 40px; height: 30px; border-radius: 9px; }
+  .seg label { position: relative; z-index: 3; width: 40px; display: grid; place-items: center; font-size: 13px; color: var(--mute); border-radius: 9px; cursor: pointer; transition: color .25s; }
+  .seg label:has(:checked) { color: var(--ink); }
+  .seg input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="bg dark"></div>
+<div class="bg light"></div>
+
+<main class="board">
+  <div class="head">光与暗 · 控件集</div>
+
+  <figure class="cell hero">
+    <button class="switch lit well" id="theme" type="button" role="switch" aria-checked="false" aria-label="浅色主题">
+      <span class="knob raised"></span>
+    </button>
+    <figcaption>开关 · 点它切换整页的光</figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="row">
+      <button class="btn lit raised" id="b1" type="button"><span>开始专注</span></button>
+      <button class="btn lit raised soft" id="b2" type="button"><span>取消</span></button>
+      <button class="btn icon lit raised" id="play" type="button" aria-pressed="false" aria-label="播放"></button>
+    </div>
+    <figcaption>按钮 · 光追着指针走</figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="slider">
+      <div class="strack lit well" id="slider">
+        <span class="knob raised"></span>
+        <input type="range" min="0" max="100" value="75" aria-label="光强">
+      </div>
+      <canvas class="readout" id="readout" aria-hidden="true"></canvas>
+    </div>
+    <figcaption>滑杆 · 调的就是全页光强</figcaption>
+  </figure>
+
+  <figure class="cell tall">
+    <article class="card lit raised soft" id="card">
+      <div class="top">
+        <div class="ttl">专注时长<small>小时</small></div>
+        <div class="seg lit well flat" id="seg" role="radiogroup" aria-label="时间范围">
+          <span class="knob raised"></span>
+          <label><input type="radio" name="range" value="0" checked><span>日</span></label>
+          <label><input type="radio" name="range" value="1"><span>周</span></label>
+          <label><input type="radio" name="range" value="2"><span>月</span></label>
+        </div>
+      </div>
+      <canvas class="chart" id="chart" role="img" aria-label="专注时长图表"></canvas>
+    </article>
+    <figcaption>卡片 · 分段选择</figcaption>
+  </figure>
+
+  <figure class="cell">
+    <label class="field lit well flat" id="field"><input type="text" placeholder="搜索" aria-label="搜索" spellcheck="false" autocomplete="off"></label>
+    <figcaption>输入框 · 光跟着光标</figcaption>
+  </figure>
+
+  <figure class="cell">
+    <div class="col">
+      <label class="check"><input type="checkbox" checked><span class="box lit raised"></span><span class="txt">专注时静音</span></label>
+      <label class="check"><input type="checkbox"><span class="box lit raised"></span><span class="txt">结束后提醒我</span></label>
+    </div>
+    <figcaption>复选框 · 亮了才算选中</figcaption>
+  </figure>
+</main>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const $ = (s, el = document) => el.querySelector(s);
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const mixc = (a, b, t) => a.map((v, i) => lerp(v, b[i], t));
+  const mix3 = (a, m, b, t) => t < .5 ? mixc(a, m, t * 2) : mixc(m, b, t * 2 - 1);
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+  const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+  class Spring {
+    constructor(x = 0, k = 260, c = 30) { this.x = this.t = x; this.v = 0; this.k = k; this.c = c; }
+    step(dt) {                                   // returns true while it is still moving
+      if (this.x === this.t && this.v === 0) return false;
+      if (REDUCE) { this.x = this.t; this.v = 0; return true; }
+      for (let i = 0; i < 4; i++) { const h = dt / 4; this.v += (this.k * (this.t - this.x) - this.c * this.v) * h; this.x += this.v * h; }
+      if (Math.abs(this.t - this.x) < 4e-4 && Math.abs(this.v) < 4e-3) { this.x = this.t; this.v = 0; }
+      return true;
+    }
+    aim(u) { let d = (u - this.t) % 1; if (d > .5) d -= 1; if (d < -.5) d += 1; this.t += d; }   // shortest way round a loop
+  }
+  const stepAll = (dt, ...s) => s.reduce((m, x) => x.step(dt) || m, false);
+
+  // ---- theme + frame loop -----------------------------------------------------
+  const GLOWS = [[108, 120, 255], [236, 226, 255], [255, 158, 18]];
+  const CORES = [[224, 230, 255], [255, 255, 255], [255, 208, 72]];
+  const DOTS  = [[255, 255, 255], [64, 59, 54]];
+  const T = new Spring(matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0, 95, 15.5);
+  let P = T.x, G = 1, GLOW = GLOWS[0], CORE = CORES[0], DOT = DOTS[0];
+
+  function applyTheme() {
+    P = clamp(T.x);
+    GLOW = mix3(...GLOWS, P); CORE = mix3(...CORES, P); DOT = mixc(...DOTS, P);
+    root.style.setProperty('--p', P.toFixed(4));
+    root.style.setProperty('--glow', GLOW.map(n => n | 0).join(' '));
+  }
+
+  const comps = [];
+  let raf = 0, last = 0, redrawAll = true;
+  const kick = () => { if (!raf) { last = 0; raf = requestAnimationFrame(frame); } };
+  function frame(t) {
+    const dt = last ? Math.min(.032, (t - last) / 1000) : .016; last = t;
+    let busy = T.step(dt);
+    const all = busy || redrawAll; redrawAll = false;
+    if (all) applyTheme();
+    for (const c of comps) {
+      const moved = c.update(dt);
+      if (moved || all || c.dirty) { c.dirty = false; c.draw(); }
+      busy = busy || moved;
+    }
+    raf = busy || redrawAll ? requestAnimationFrame(frame) : 0;
+  }
+
+  // ---- geometry: a point on a rounded rect's rim, u in turns (0 bottom centre, .25 right, .5 top) ----
+  function perimeter(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    const sx = w - 2 * r, sy = h - 2 * r, q = Math.PI * r / 2;
+    const segs = [sx / 2, q, sy, q, sx, q, sy, q, sx / 2];
+    const L = segs.reduce((a, b) => a + b, 0);
+    return u => {
+      let d = ((u % 1) + 1) % 1 * L, k = 0;
+      while (k < 8 && d > segs[k]) d -= segs[k++];
+      const a = d / r;
+      switch (k) {
+        case 0: return [x + w / 2 + d, y + h];
+        case 1: return [x + w - r + Math.sin(a) * r, y + h - r + Math.cos(a) * r];
+        case 2: return [x + w, y + h - r - d];
+        case 3: return [x + w - r + Math.cos(a) * r, y + r - Math.sin(a) * r];
+        case 4: return [x + w - r - d, y];
+        case 5: return [x + r - Math.sin(a) * r, y + r - Math.cos(a) * r];
+        case 6: return [x, y + r + d];
+        case 7: return [x + r - Math.cos(a) * r, y + h - r + Math.sin(a) * r];
+        default: return [x + r + d, y + h];
+      }
+    };
+  }
+  function rrect(c, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+  function nearestU(R, px, py) {
+    const at = perimeter(R.x, R.y, R.w, R.h, R.r);
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < 120; i++) { const [x, y] = at(i / 120), d = (x - px) ** 2 + (y - py) ** 2; if (d < bd) { bd = d; best = i; } }
+    return best / 120;
+  }
+  // Where the light rests: under the piece in the dark, over it in the light. fx slides it along that edge.
+  const rimU = (fx = .5, a = .25) => lerp((fx - .5) * a, .5 - (fx - .5) * a, P);
+
+  // ---- Lit: a canvas laid over a host element that draws the light on its rim ----
+  const HALO = [[26, 72, .9, 11], [16, 34, 1, 8], [9, 14, 1, 5], [5, 5, 1, 3]];   // width, blur, alpha, end trim
+  const OFF = 4000;
+  class Lit {
+    constructor(host, s, M) {
+      this.host = host; this.s = s; this.M = M ?? Math.ceil(96 * s); this.dirty = true;
+      this.cv = document.createElement('canvas'); this.cv.className = 'fx'; this.ctx = this.cv.getContext('2d');
+      this.hcv = document.createElement('canvas'); this.hctx = this.hcv.getContext('2d');
+      host.appendChild(this.cv);
+      this.update = () => false; this.draw = () => {};
+      comps.push(this);
+      new ResizeObserver(() => { this.layout(); this.poke(); }).observe(host);
+      this.layout();
+    }
+    layout() {
+      const { host, M, cv } = this;
+      this.w = host.offsetWidth; this.h = host.offsetHeight;
+      this.r = parseFloat(getComputedStyle(host).borderTopLeftRadius) || 0;
+      this.K = Math.min(2, devicePixelRatio || 1);
+      this.hcv.width = cv.width = Math.round((this.w + 2 * M) * this.K);
+      this.hcv.height = cv.height = Math.round((this.h + 2 * M) * this.K);
+      Object.assign(cv.style, { left: -M + 'px', top: -M + 'px', width: this.w + 2 * M + 'px', height: this.h + 2 * M + 'px' });
+    }
+    poke() { this.dirty = true; kick(); }
+    rect() { return { x: 0, y: 0, w: this.w, h: this.h, r: this.r }; }
+    begin() {
+      const { ctx, K, M } = this;
+      ctx.setTransform(K, 0, 0, K, M * K, M * K);
+      ctx.clearRect(-M, -M, this.w + 2 * M, this.h + 2 * M);
+      ctx.lineCap = ctx.lineJoin = 'round';
+      return ctx;
+    }
+    // An arc of light centred at u0, `span` turns long, hugging rounded rect R.
+    rim(R, u0, span, power, o = {}) {
+      if (power < .004 || !this.w) return;
+      const { ctx, hctx, K, M, s } = this, X = -M, Y = -M, CW = this.w + 2 * M, CH = this.h + 2 * M;
+      const gap = o.gap ?? lerp(2.5, 6, P) * Math.max(.45, s);
+      const at = perimeter(R.x - gap, R.y - gap, R.w + 2 * gap, R.h + 2 * gap, R.r + gap);
+      const N = 64, pts = [];
+      for (let i = 0; i <= N; i++) pts.push(at(u0 + (i / N - .5) * span));
+      const [mx, my] = at(u0), gg = power * G, A = a => Math.min(1, a * gg);
+
+      // haze spilling onto whatever is around
+      let g = ctx.createRadialGradient(mx, my, 0, mx, my, M);
+      g.addColorStop(0, rgba(GLOW, A(.26))); g.addColorStop(.45, rgba(GLOW, A(.085))); g.addColorStop(1, rgba(GLOW, 0));
+      ctx.fillStyle = g; ctx.fillRect(mx - M, my - M, 2 * M, 2 * M);
+
+      // wash across the face of the piece
+      const wash = o.wash ?? 1, wr = .9 * Math.sqrt(R.w * R.h);
+      ctx.save();
+      ctx.beginPath(); rrect(ctx, R.x, R.y, R.w, R.h, R.r); ctx.clip();
+      g = ctx.createRadialGradient(mx, my, 0, mx, my, wr);
+      g.addColorStop(0, rgba(GLOW, A(lerp(.46, .72, P) * wash))); g.addColorStop(.45, rgba(GLOW, A(lerp(.16, .30, P) * wash))); g.addColorStop(1, rgba(GLOW, 0));
+      ctx.fillStyle = g; ctx.fillRect(R.x, R.y, R.w, R.h);
+      ctx.restore();
+
+      // halo: blurred copies of the arc rendered as shadow only (the stroke itself is parked off-canvas),
+      // composited strongly outside the piece and faintly on its face
+      hctx.setTransform(K, 0, 0, K, M * K, M * K);
+      hctx.clearRect(X, Y, CW, CH);
+      hctx.lineCap = hctx.lineJoin = 'round';
+      hctx.translate(-OFF, 0); hctx.shadowOffsetX = OFF * K;
+      for (const [lw, blur, a, trim] of HALO) {
+        hctx.shadowBlur = blur * s * K; hctx.shadowColor = rgba(GLOW, a); hctx.lineWidth = lw * s;
+        hctx.beginPath();
+        for (let i = trim; i <= N - trim; i++) hctx.lineTo(pts[i][0], pts[i][1]);
+        hctx.stroke();
+      }
+      const comp = (inside, a) => {
+        ctx.save();
+        ctx.beginPath();
+        if (!inside) ctx.rect(X, Y, CW, CH);
+        rrect(ctx, R.x, R.y, R.w, R.h, R.r);
+        ctx.clip('evenodd');
+        for (; a > .004; a -= 1) { ctx.globalAlpha = Math.min(1, a); ctx.drawImage(this.hcv, X, Y, CW, CH); }
+        ctx.restore();
+      };
+      comp(false, gg * (1 + lerp(.85, .15, P)));
+      comp(true, gg * .35);
+
+      // the filament itself, tapered towards both ends; it stays readable even when the glow is turned down
+      const fw = clamp(s * 1.15, .5, 1), fa = Math.min(1, power) * (.45 + .55 * Math.min(1, G));
+      for (let i = 0; i < N; i++) {
+        const w = Math.pow(Math.sin(Math.PI * (i + .5) / N), .7);
+        ctx.strokeStyle = rgba(CORE, Math.min(1, w * 1.25) * fa);
+        ctx.lineWidth = (.5 + 2.6 * w) * fw;
+        ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[i + 1][0], pts[i + 1][1]); ctx.stroke();
+      }
+    }
+  }
+
+  // ---- dot matrix ---------------------------------------------------------------
+  function bits(rows) {                          // '#' cells of a bitmap, centred on the origin
+    const out = [], w = rows[0].length, h = rows.length;
+    rows.forEach((r, y) => [...r].forEach((c, x) => { if (c === '#') out.push({ x: x - (w - 1) / 2, y: y - (h - 1) / 2, a: 1 }); }));
+    return out;
+  }
+  // Pair every dot of A with a dot of B; surplus dots fade in or out. p = 0 shows A, p = 1 shows B.
+  function morph(A, B, o = {}) {
+    if (o.order === 'x') { A = [...A].sort((p, q) => p.x - q.x || p.y - q.y); B = [...B].sort((p, q) => p.x - q.x || p.y - q.y); }
+    else { A = [...A].sort((p, q) => q.a - p.a); B = shuffle([...B]); }
+    const n = Math.max(A.length, B.length), parts = [];
+    for (let i = 0; i < n; i++) {
+      const s = B[i] || { ...(B.length ? B[(rnd() * B.length) | 0] : A[i]), a: 0 };
+      const m = A[i] || { x: s.x + (rnd() - .5) * 3, y: s.y + (rnd() - .5) * 3, a: 0 };
+      const ang = rnd() * Math.PI * 2;
+      parts.push({ m, s, dx: Math.cos(ang), dy: Math.sin(ang), amp: 1.7 + rnd() * 4.3, r: rnd(), spin: (o.spin ?? 1) * (rnd() - .5) * 1.6 });
+    }
+    const xs = parts.map(d => d.m.x), lo = Math.min(...xs), hi = Math.max(...xs);
+    for (const d of parts) d.delay = (hi > lo ? (hi - d.m.x) / (hi - lo) : 0) * .30 + d.r * .12;   // right side lets go first
+    return parts;
+  }
+  function drawMorph(ctx, parts, p, ox, oy, cell, sA, sB, cA, cB, K) {
+    for (const d of parts) {
+      const q = ease(clamp((p - d.delay) / .58)), arc = Math.sin(Math.PI * q);
+      let px = lerp(d.m.x, d.s.x, q) * cell, py = lerp(d.m.y, d.s.y, q) * cell;
+      const rot = d.spin * arc, c = Math.cos(rot), s = Math.sin(rot), amp = d.amp * cell * arc;
+      [px, py] = [px * c - py * s + d.dx * amp, px * s + py * c + d.dy * amp];
+      const a = lerp(d.m.a, d.s.a, q) * (1 - .25 * arc);
+      if (a < .01) continue;
+      const size = lerp(sA, sB, q) * (1 - .3 * arc);
+      let x = ox + px - size / 2, y = oy + py - size / 2;
+      if (q === 0 || q === 1) { x = Math.round(x * K) / K; y = Math.round(y * K) / K; }   // crisp when at rest
+      ctx.fillStyle = rgba(cA === cB ? cA : mixc(cA, cB, q), a);
+      ctx.fillRect(x, y, size, size);
+    }
+  }
+  const FONT = { 0: '111101101101111', 1: '010110010010111', 2: '111001111100111', 3: '111001111001111', 4: '101101111001001',
+                 5: '111100111001111', 6: '111100111101111', 7: '111001001001001', 8: '111101111101111', 9: '111101111001111' };
+  function glyphs(str, sc = 1) {                 // 3x5 numerals, each font pixel sc x sc dots
+    const out = []; let cx = 0;
+    const put = (x, y) => { for (let i = 0; i < sc; i++) for (let j = 0; j < sc; j++) out.push({ x: cx + x * sc + i, y: y * sc + j, a: 1 }); };
+    for (const ch of str) {
+      if (ch === '.') { put(0, 4); cx += 2 * sc; continue; }
+      const g = FONT[ch];
+      if (g) for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++) if (g[r * 3 + c] === '1') put(c, r);
+      cx += 4 * sc;
+    }
+    return out;
+  }
+  function moonDots() {
+    const out = [], cx = -1, cy = 1;
+    for (let j = -9; j <= 9; j++) for (let i = -9; i <= 9; i++) {
+      if (Math.hypot(i - cx, j - cy) > 6.5) continue;
+      const lit = Math.hypot(i - (cx + 3.3), j - (cy - 2.7)) > 5.7;
+      out.push({ x: i, y: j, a: lit ? 1 : ((i + j) & 1 ? .26 : .11) });
+    }
+    [[6, -6, 1], [5, -6, .4], [7, -6, .4], [6, -7, .4], [6, -5, .4], [2, -7, .45], [7, -2, .35]].forEach(([x, y, a]) => out.push({ x, y, a }));
+    return out;
+  }
+  function sunDots() {
+    const out = [];
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (Math.abs(i) + Math.abs(j) < 6) out.push({ x: i, y: j, a: 1 });
+    for (const d of [6, 7, 8]) for (const [x, y] of [[d, 0], [-d, 0], [0, d], [0, -d]]) out.push({ x, y, a: .82 });
+    for (const d of [4, 5]) for (const [x, y] of [[d, d], [-d, d], [d, -d], [-d, -d]]) out.push({ x, y, a: .82 });
+    return out;
+  }
+
+  // ---- shared pointer plumbing -----------------------------------------------------
+  function pointerState(el, lit, onTrack) {
+    const st = { hover: new Spring(0, 260, 30), press: new Spring(0, 700, 50), over: false };
+    const track = e => {
+      if (!onTrack) return;
+      const b = el.getBoundingClientRect();
+      onTrack((e.clientX - b.left) * lit.w / b.width, (e.clientY - b.top) * lit.h / b.height);
+    };
+    el.addEventListener('pointerenter', e => { st.over = true; st.hover.t = 1; track(e); lit.poke(); });
+    el.addEventListener('pointermove', e => { if (st.over) { track(e); lit.poke(); } });
+    el.addEventListener('pointerleave', () => { st.over = false; st.hover.t = 0; st.press.t = 0; lit.poke(); });
+    el.addEventListener('pointerdown', () => { st.press.t = 1; lit.poke(); });
+    addEventListener('pointerup', () => { if (st.press.t) { st.press.t = 0; lit.poke(); } });
+    addEventListener('pointercancel', () => { if (st.press.t) { st.press.t = 0; lit.poke(); } });
+    return st;
+  }
+
+  // ---- switch: the light's position IS the state ----------------------------------
+  function ThemeSwitch(btn) {
+    const knob = $('.knob', btn), lit = new Lit(btn, .75, 190);
+    const st = pointerState(btn, lit);
+    const parts = morph(moonDots(), sunDots());
+    const set = on => {
+      T.t = on ? 1 : 0;
+      btn.setAttribute('aria-checked', String(!!on));
+      root.dataset.theme = on ? 'light' : 'dark';
+      document.dispatchEvent(new CustomEvent('themechange', { detail: root.dataset.theme }));
+      kick();
+    };
+    btn.addEventListener('click', () => set(!T.t));
+    btn.addEventListener('focus', () => { if (btn.matches(':focus-visible')) { st.hover.t = 1; lit.poke(); } });
+    btn.addEventListener('blur', () => { if (!st.over) { st.hover.t = 0; lit.poke(); } });
+    lit.update = dt => stepAll(dt, st.hover, st.press);
+    lit.draw = () => {
+      const k = lit.w / 440, W = lit.w, PAD = 16 * k, KNOB = 196 * k, KR = 52 * k;
+      const x = T.x, speed = Math.min(1, Math.abs(T.v) / 4.5), hv = st.hover.x;
+      const kw = KNOB + (24 * speed + 12 * st.press.x) * k;
+      const kx = clamp(lerp(PAD + KNOB / 2, W - PAD - KNOB / 2, x) - kw / 2, 9 * k, W - 9 * k - kw);
+      knob.style.width = kw + 'px';
+      knob.style.transform = `translate3d(${kx}px,0,0)`;
+      const ctx = lit.begin();
+      lit.s = k;
+      lit.rim({ x: kx, y: PAD, w: kw, h: KNOB, r: KR },
+              lerp(lerp(-.155, 0, hv), lerp(.395, .43, hv), clamp(x, -.06, 1.06)), .25 + .11 * speed, 1, { gap: lerp(2.5, 7, P) * k });
+      drawMorph(ctx, parts, P, kx + kw / 2, PAD + KNOB / 2, 6 * k, 5.2 * k, 4.5 * k, DOTS[0], DOTS[1], lit.K);
+    };
+    set(T.t);
+  }
+
+  // ---- button / card: the light leans towards the pointer ----------------------
+  function Follower(el, { s, rest, span, wash = 1, press = false }) {
+    const lit = new Lit(el, s);
+    const u = new Spring(rimU(), 150, 21), flash = new Spring(0, 70, 15);
+    const st = pointerState(el, lit, (x, y) => u.aim(nearestU(lit.rect(), x, y)));
+    if (press) {
+      el.addEventListener('click', () => { flash.x = 1; flash.t = 0; lit.poke(); });
+      el.addEventListener('focus', () => { if (el.matches(':focus-visible')) { st.hover.t = 1; lit.poke(); } });
+      el.addEventListener('blur', () => { if (!st.over) { st.hover.t = 0; lit.poke(); } });
+    }
+    lit.update = dt => { if (!st.over) u.aim(rimU()); return stepAll(dt, st.hover, st.press, flash, u); };
+    lit.draw = () => {
+      const hv = st.hover.x, f = Math.max(0, flash.x);
+      if (press) el.style.setProperty('--press', st.press.x.toFixed(3));
+      lit.begin();
+      lit.rim(lit.rect(), u.x, lerp(span, span * 1.25, hv) + .3 * f, lerp(rest, 1, hv) + .5 * f, { wash: wash * (1 + .35 * st.press.x) });
+    };
+    return lit;
+  }
+
+  // ---- two-state pieces (play/pause, checkbox): the light crosses over and brightens ----
+  function Toggle(host, lit, from, to, cell, size, restPower) {
+    const on = new Spring(0, 95, 15.5), parts = morph(from, to);
+    const st = pointerState(host, lit);
+    lit.update = dt => stepAll(dt, on, st.hover, st.press);
+    lit.draw = () => {
+      const q = clamp(on.x), ctx = lit.begin();
+      lit.rim(lit.rect(), rimU(on.x), .24, lerp(restPower, 1, q) + .2 * st.hover.x * (1 - q));
+      drawMorph(ctx, parts, q, lit.w / 2, lit.h / 2, cell, size, size, DOT, DOT, lit.K);
+    };
+    return { set(v, now) { on.t = v ? 1 : 0; if (now) on.x = on.t; lit.poke(); }, st };
+  }
+  const PLAY  = bits(['.#.....', '.##....', '.###...', '.####..', '.#####.', '.####..', '.###...', '.##....', '.#.....']);
+  const PAUSE = bits(['##.##', '##.##', '##.##', '##.##', '##.##', '##.##', '##.##', '##.##', '##.##']);
+  const TICK  = bits(['......#', '.....#.', '#...#..', '.#.#...', '..#....']);
+
+  function PlayButton(btn) {
+    const lit = new Lit(btn, .5), tg = Toggle(btn, lit, PLAY, PAUSE, 3.5, 2.75, .3);
+    const draw = lit.draw;
+    lit.draw = () => { btn.style.setProperty('--press', tg.st.press.x.toFixed(3)); draw(); };
+    let on = false;
+    btn.addEventListener('click', () => { on = !on; btn.setAttribute('aria-pressed', String(on)); btn.setAttribute('aria-label', on ? '暂停' : '播放'); tg.set(on); });
+  }
+  function Checkbox(label) {
+    const input = $('input', label), lit = new Lit($('.box', label), .3), tg = Toggle(label, lit, [], TICK, 3, 2.6, 0);
+    input.addEventListener('change', () => tg.set(input.checked));
+    tg.set(input.checked, true);
+  }
+
+  // ---- slider: the light slides along the knob's edge with the value ----------------
+  function Slider(track, readout, onChange) {
+    const knob = $('.knob', track), input = $('input', track), lit = new Lit(track, .4);
+    const val = new Spring(input.value / 100, 420, 41);
+    const st = pointerState(track, lit);
+    const rctx = readout.getContext('2d');
+    input.addEventListener('input', () => { val.t = input.value / 100; lit.poke(); });
+    lit.update = dt => { const m = stepAll(dt, val, st.hover); if (m) onChange(clamp(val.x)); return m; };
+    lit.draw = () => {
+      const W = lit.w, H = lit.h, PAD = 6, KN = 36, v = clamp(val.x), sp = Math.min(1, Math.abs(val.v) / 6);
+      const kw = KN + 10 * sp + 4 * st.press.x;
+      const kx = clamp(PAD + v * (W - 2 * PAD - KN) - (kw - KN) / 2, PAD, W - PAD - kw);
+      knob.style.width = kw + 'px';
+      knob.style.transform = `translate3d(${kx}px,0,0)`;
+      const ctx = lit.begin(), x0 = PAD + 8;
+      if (kx - 4 > x0) {                         // light conducted along the groove into the knob
+        const g = ctx.createLinearGradient(x0, 0, kx, 0);
+        g.addColorStop(0, rgba(CORE, 0)); g.addColorStop(1, rgba(CORE, .35 + .5 * Math.min(1, G)));
+        ctx.save();
+        ctx.strokeStyle = g; ctx.lineWidth = 2; ctx.shadowColor = rgba(GLOW, Math.min(1, G)); ctx.shadowBlur = 9 * lit.K;
+        ctx.beginPath(); ctx.moveTo(x0, H / 2); ctx.lineTo(kx - 4, H / 2); ctx.stroke(); ctx.stroke();
+        ctx.restore();
+      }
+      lit.rim({ x: kx, y: PAD, w: kw, h: KN, r: 11 }, rimU(v), .26, 1);
+
+      // 3-digit dot readout with the unlit cells faintly visible
+      const K = lit.K, cell = 4, dot = 3;
+      if (readout.width !== 44 * K) { readout.width = 44 * K; readout.height = 20 * K; }
+      rctx.setTransform(K, 0, 0, K, 0, 0); rctx.clearRect(0, 0, 44, 20);
+      const lit3 = new Set(glyphs(String(Math.round(v * 100)).padStart(3, ' ')).map(c => c.x + ',' + c.y));
+      for (let y = 0; y < 5; y++) for (let x = 0; x < 11; x++) {
+        if (x % 4 === 3) continue;
+        rctx.fillStyle = rgba(DOT, lit3.has(x + ',' + y) ? .95 : .1);
+        rctx.fillRect(x * cell + .5, y * cell + .5, dot, dot);
+      }
+    };
+  }
+
+  // ---- segmented control ---------------------------------------------------------
+  function Segmented(el, onChange) {
+    const knob = $('.knob', el), lit = new Lit(el, .34), idx = new Spring(0, 150, 21);
+    el.addEventListener('change', e => { idx.t = +e.target.value; onChange(idx.t); lit.poke(); });
+    lit.update = dt => idx.step(dt);
+    lit.draw = () => {
+      const PAD = 5, SW = 40, sp = Math.min(1, Math.abs(idx.v) / 7);
+      const kw = SW + 14 * sp, kx = clamp(PAD + idx.x * SW - (kw - SW) / 2, PAD - 2, lit.w - PAD + 2 - kw);
+      knob.style.width = kw + 'px';
+      knob.style.transform = `translate3d(${kx}px,0,0)`;
+      lit.begin();
+      lit.rim({ x: kx, y: 5, w: kw, h: 30, r: 9 }, rimU(), .24 + .1 * sp, 1);
+    };
+  }
+
+  // ---- field: the light sits under the caret ------------------------------------
+  function Field(label) {
+    const input = $('input', label), lit = new Lit(label, .45);
+    const focus = new Spring(0, 200, 27), cx = new Spring(0, 220, 28);
+    const st = pointerState(label, lit);
+    const mctx = document.createElement('canvas').getContext('2d');
+    const caret = () => {
+      const cs = getComputedStyle(input), pos = document.activeElement === input ? input.selectionEnd ?? 0 : 0;
+      mctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const text = input.value.slice(0, pos);
+      const x = parseFloat(cs.paddingLeft) + mctx.measureText(text).width + parseFloat(cs.letterSpacing || 0) * text.length - input.scrollLeft;
+      cx.t = clamp((x - lit.r) / (lit.w - 2 * lit.r));
+      focus.t = document.activeElement === input ? 1 : 0;
+      lit.poke();
+    };
+    for (const ev of ['input', 'focus', 'blur', 'keyup', 'pointerup', 'select']) input.addEventListener(ev, () => requestAnimationFrame(caret));
+    document.addEventListener('selectionchange', caret);
+    lit.update = dt => stepAll(dt, focus, cx, st.hover);
+    lit.draw = () => {
+      const R = lit.rect(), r = Math.min(R.r, R.h / 2), edge = R.w - 2 * r;
+      const a = edge / (2 * edge + 2 * (R.h - 2 * r) + 2 * Math.PI * r), f = focus.x;
+      lit.begin();
+      lit.rim(R, rimU(cx.x, a), lerp(.07, .1, f), clamp(.16 + .2 * st.hover.x + .84 * f), { gap: .5, wash: .8 });
+    };
+  }
+
+  // ---- card contents: a dot-matrix figure + bar chart that reshuffles between ranges ----
+  function Chart(cv) {
+    const COLS = 58, ROWS = 14, CELL = 5, DOTSZ = 4, BAR0 = 29;
+    const DATA = [{ v: '4.5', bars: [3, 5, 4, 8, 10, 7, 9, 12, 6, 4] },
+                  { v: '31',  bars: [6, 9, 7, 11, 8, 13, 10, 5, 7, 9] },
+                  { v: '128', bars: [4, 6, 7, 9, 8, 10, 12, 11, 13, 14] }];
+    const cells = d => {
+      const out = glyphs(d.v, 2).map(c => ({ ...c, y: c.y + ROWS - 10 }));
+      d.bars.forEach((h, b) => { for (let i = 0; i < h; i++) for (const dx of [0, 1]) out.push({ x: BAR0 + b * 3 + dx, y: ROWS - 1 - i, a: 1 }); });
+      return out;
+    };
+    const key = c => c.x + ',' + c.y, ctx = cv.getContext('2d'), q = new Spring(1, 42, 13);
+    let cur = cells(DATA[0]), still = cur, parts = [], K = 0;
+    const me = {
+      dirty: true,
+      update: dt => q.step(dt),
+      draw() {
+        const k = Math.min(2, devicePixelRatio || 1);
+        if (k !== K) { K = k; cv.width = COLS * CELL * K; cv.height = ROWS * CELL * K; }
+        ctx.setTransform(K, 0, 0, K, 0, 0); ctx.clearRect(0, 0, COLS * CELL, ROWS * CELL);
+        ctx.fillStyle = rgba(DOT, .09);
+        for (let b = 0; b < 10; b++) for (let y = 0; y < ROWS; y++) for (const dx of [0, 1]) ctx.fillRect((BAR0 + b * 3 + dx) * CELL + .5, y * CELL + .5, DOTSZ, DOTSZ);
+        ctx.fillStyle = rgba(DOT, .95);
+        for (const c of still) ctx.fillRect(c.x * CELL + .5, c.y * CELL + .5, DOTSZ, DOTSZ);
+        drawMorph(ctx, parts, clamp(q.x), CELL / 2 + .5, CELL / 2 + .5, CELL, DOTSZ, DOTSZ, DOT, DOT, K);
+      },
+      set(i) {                                   // dots present in both figures stay put, the rest fly across
+        const next = cells(DATA[i]), a = new Set(cur.map(key)), b = new Set(next.map(key));
+        still = next.filter(c => a.has(key(c)));
+        parts = morph(cur.filter(c => !b.has(key(c))), next.filter(c => !a.has(key(c))), { order: 'x', spin: 0 });
+        for (const d of parts) { d.m = { ...d.m, a: d.m.a && .95 }; d.s = { ...d.s, a: d.s.a && .95 }; }
+        cur = next; q.x = 0; q.v = 0; q.t = 1; me.dirty = true; kick();
+      },
+    };
+    comps.push(me);
+    return me;
+  }
+
+  // ---- boot --------------------------------------------------------------------------
+  ThemeSwitch($('#theme'));
+  Follower($('#b1'), { s: .5, rest: .55, span: .17, press: true });
+  Follower($('#b2'), { s: .5, rest: 0, span: .17, press: true });
+  PlayButton($('#play'));
+  Slider($('#slider'), $('#readout'), v => { const g = .25 + v; if (g !== G) { G = g; redrawAll = true; } });
+  const chart = Chart($('#chart'));
+  Follower($('#card'), { s: .9, rest: .5, span: .075, wash: .5 });
+  Segmented($('#seg'), i => chart.set(i));
+  Field($('#field'));
+  document.querySelectorAll('.check').forEach(Checkbox);
+  G = .25 + $('#slider input').value / 100;
+  addEventListener('resize', () => { for (const c of comps) c.layout?.(); redrawAll = true; kick(); });
+
+  // test hook: freeze the whole page at an arbitrary point of the theme transition
+  window.__kit = { theme(p) { T.x = T.t = p; T.v = 0; redrawAll = true; kick(); } };
+  kick();
+})();
+</script>
+</body>
+</html>

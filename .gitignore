@@ -1,0 +1,5 @@
+__pycache__/
+video/stage.html
+video/*.mp4
+video/*.wav
+video/still_*.png

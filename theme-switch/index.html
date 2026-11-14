@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>光与暗 · 主题开关</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { overflow: hidden; background: #0b0c10; font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+  .stage { position: fixed; inset: 0; display: grid; place-items: center; --p: 0; }
+  .bg { position: absolute; inset: 0; }
+  .bg.dark  { background: radial-gradient(120% 90% at 50% 45%, #17181e 0%, #0c0d11 55%, #060609 100%); }
+  .bg.light { background: radial-gradient(120% 90% at 50% 40%, #ebe8e4 0%, #dcd8d3 60%, #cfcbc5 100%); opacity: var(--p); }
+
+  .scale { position: relative; width: 440px; height: 228px; transform-origin: center; }
+
+  .switch {
+    position: absolute; inset: 0; padding: 0; border: 0; background: none;
+    border-radius: 64px; cursor: pointer; outline: none;
+    -webkit-tap-highlight-color: transparent; touch-action: manipulation;
+  }
+  .switch:focus-visible { box-shadow: 0 0 0 3px rgba(140, 150, 255, .55); }
+
+  .ambient {
+    position: absolute; left: 0; top: 0; width: 900px; height: 900px; margin: -450px 0 0 -450px;
+    border-radius: 50%; pointer-events: none;
+    background: radial-gradient(closest-side, rgb(var(--glow) / .30), rgb(var(--glow) / .10) 45%, transparent 72%);
+  }
+
+  .track { position: absolute; inset: 0; border-radius: 64px; pointer-events: none; }
+  .track.dark {
+    background: linear-gradient(180deg, #030304, #09090c);
+    box-shadow:
+      inset 0 8px 18px rgba(0,0,0,.95),
+      inset 0 0 0 1px rgba(0,0,0,.6),
+      0 1.5px 0 rgba(255,255,255,.07),
+      0 0 0 5px rgba(255,255,255,.012),
+      0 18px 40px rgba(0,0,0,.45);
+  }
+  .track.light {
+    opacity: var(--p);
+    background: linear-gradient(180deg, #e3e0dc, #eceae7);
+    box-shadow:
+      inset 0 4px 10px rgba(80,68,55,.20),
+      inset 0 -2px 3px rgba(255,255,255,.95),
+      0 0 0 1px rgba(255,255,255,.35),
+      8px 14px 28px rgba(80,68,55,.22),
+      -6px -6px 16px rgba(255,255,255,.55);
+  }
+
+  .knob {
+    position: absolute; left: 0; top: 16px; width: 196px; height: 196px;
+    border-radius: 52px; pointer-events: none; will-change: transform, width;
+  }
+  .knob > i { position: absolute; inset: 0; border-radius: inherit; }
+  .knob .dark {
+    opacity: calc(1 - var(--p));
+    background: linear-gradient(165deg, rgba(255,255,255,.24), rgba(255,255,255,.09) 55%, rgba(255,255,255,.14));
+    border: 1.5px solid rgba(255,255,255,.30);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 10px 26px rgba(0,0,0,.55);
+    -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+  }
+  .knob .light {
+    opacity: var(--p);
+    background: linear-gradient(180deg, #fefdfc, #efece8);
+    box-shadow:
+      inset 0 1.5px 0 #fff, inset 0 -6px 10px rgba(120,105,90,.08),
+      0 12px 20px rgba(70,58,45,.24), 0 2px 5px rgba(70,58,45,.18);
+  }
+
+  canvas.fx { position: absolute; left: -140px; top: -140px; width: 720px; height: 508px; pointer-events: none; }
+
+  .hint {
+    position: absolute; left: 0; right: 0; bottom: 28px; text-align: center;
+    font-size: 12px; letter-spacing: .28em; pointer-events: none; user-select: none;
+    color: color-mix(in srgb, rgba(255,255,255,.26) calc((1 - var(--p)) * 100%), rgba(60,52,44,.42));
+  }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="bg dark"></div>
+  <div class="bg light"></div>
+  <div class="scale" id="scale">
+    <span class="ambient" id="ambient"></span>
+    <button class="switch" id="switch" type="button" role="switch" aria-checked="false" aria-label="浅色主题">
+      <span class="track dark"></span>
+      <span class="track light"></span>
+      <span class="knob" id="knob"><i class="dark"></i><i class="light"></i></span>
+      <canvas class="fx" id="fx"></canvas>
+    </button>
+  </div>
+  <div class="hint">点击 · 空格</div>
+</div>
+
+<script>
+(() => {
+  // ---- geometry (design px) ------------------------------------------------
+  const W = 440, H = 228, PAD = 16, KNOB = 196, KR = 52, M = 140, CELL = 6;
+  const stage = document.getElementById('stage');
+  const scaleEl = document.getElementById('scale');
+  const btn = document.getElementById('switch');
+  const knobEl = document.getElementById('knob');
+  const ambient = document.getElementById('ambient');
+  const canvas = document.getElementById('fx');
+  const ctx = canvas.getContext('2d');
+  const haloCanvas = document.createElement('canvas');
+  const hctx = haloCanvas.getContext('2d');
+
+  const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  const mix3 = (a, m, b, t) => t < .5
+    ? a.map((v, i) => lerp(v, m[i], t * 2))
+    : m.map((v, i) => lerp(v, b[i], t * 2 - 1));
+  const rgba = (c, a) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
+
+  const GLOW = [[108, 120, 255], [236, 226, 255], [255, 158, 18]];
+  const CORE = [[224, 230, 255], [255, 255, 255], [255, 208, 72]];
+  const DOT  = [[255, 255, 255], [64, 59, 54]];
+
+  // ---- dot-matrix icons ----------------------------------------------------
+  function moonDots() {
+    const out = [], cx = -1, cy = 1, R = 6.5;
+    for (let j = -9; j <= 9; j++) for (let i = -9; i <= 9; i++) {
+      if (Math.hypot(i - cx, j - cy) > R) continue;
+      const lit = Math.hypot(i - (cx + 3.3), j - (cy - 2.7)) > 5.7;
+      out.push({ x: i, y: j, a: lit ? 1 : ((i + j) & 1 ? .26 : .11), s: 5.2 });
+    }
+    [[6, -6, 1], [5, -6, .4], [7, -6, .4], [6, -7, .4], [6, -5, .4], [2, -7, .45], [7, -2, .35]]
+      .forEach(([x, y, a]) => out.push({ x, y, a, s: 5.2 }));
+    return out;
+  }
+  function sunDots() {
+    const out = [];
+    for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++)
+      if (Math.abs(i) + Math.abs(j) < 6) out.push({ x: i, y: j, a: 1, s: 4.5 });
+    for (const d of [6, 7, 8]) out.push({ x: d, y: 0 }, { x: -d, y: 0 }, { x: 0, y: d }, { x: 0, y: -d });
+    for (const d of [4, 5]) out.push({ x: d, y: d }, { x: -d, y: d }, { x: d, y: -d }, { x: -d, y: -d });
+    return out.map(d => ({ a: .82, s: 4.5, ...d }));
+  }
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = (rnd() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+  const moon = moonDots().sort((a, b) => b.a - a.a);
+  const sun = shuffle(sunDots());
+  const particles = moon.map((m, i) => {
+    const s = sun[i] || { ...sun[(rnd() * sun.length) | 0], a: 0 };
+    const ang = rnd() * Math.PI * 2;
+    return {
+      m, s,
+      dx: Math.cos(ang), dy: Math.sin(ang),
+      amp: 10 + rnd() * 26,
+      delay: clamp((9 - m.x) / 18) * .30 + rnd() * .12,   // right side of the moon dissolves first
+      spin: (rnd() - .5) * 1.6,
+    };
+  });
+
+  // ---- rounded-rect perimeter, u in turns: 0 = bottom centre, .25 = right, .5 = top ----
+  function perimeter(x, y, w, h, r) {
+    const sx = w - 2 * r, sy = h - 2 * r, q = Math.PI * r / 2;
+    const segs = [sx / 2, q, sy, q, sx, q, sy, q, sx / 2];
+    const L = segs.reduce((a, b) => a + b, 0);
+    return u => {
+      let d = ((u % 1) + 1) % 1 * L, k = 0;
+      while (d > segs[k]) d -= segs[k++];
+      const a = d / r;
+      switch (k) {
+        case 0: return [x + w / 2 + d, y + h];
+        case 1: return [x + w - r + Math.sin(a) * r, y + h - r + Math.cos(a) * r];
+        case 2: return [x + w, y + h - r - d];
+        case 3: return [x + w - r + Math.cos(a) * r, y + r - Math.sin(a) * r];
+        case 4: return [x + w - r - d, y];
+        case 5: return [x + r - Math.sin(a) * r, y + r - Math.cos(a) * r];
+        case 6: return [x, y + r + d];
+        case 7: return [x + r - Math.cos(a) * r, y + h - r + Math.sin(a) * r];
+        default: return [x + r + d, y + h];
+      }
+    };
+  }
+  function rrect(c, x, y, w, h, r) {
+    c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+
+  // ---- state ---------------------------------------------------------------
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let target = matchMedia('(prefers-color-scheme: light)').matches ? 1 : 0;
+  let x = target, v = 0;          // spring: 0 = dark, 1 = light
+  let hover = 0, hoverT = 0, press = 0, pressT = 0;
+  let S = 1, K = 1, raf = 0, last = 0;
+
+  function resize() {
+    S = Math.min(1, innerWidth / 620, innerHeight / 420);
+    scaleEl.style.transform = `scale(${S})`;
+    K = S * Math.min(2, devicePixelRatio || 1);
+    canvas.width = Math.round((W + 2 * M) * K);
+    canvas.height = Math.round((H + 2 * M) * K);
+    haloCanvas.width = canvas.width; haloCanvas.height = canvas.height;
+    kick();
+  }
+
+  function setTheme(next) {
+    target = next;
+    btn.setAttribute('aria-checked', String(!!target));
+    document.documentElement.dataset.theme = target ? 'light' : 'dark';
+    document.dispatchEvent(new CustomEvent('themechange', { detail: target ? 'light' : 'dark' }));
+    if (reduce) { x = target; v = 0; }
+    kick();
+  }
+
+  function kick() { if (!raf) { last = 0; raf = requestAnimationFrame(tick); } }
+
+  function tick(t) {
+    const dt = last ? Math.min(.032, (t - last) / 1000) : .016; last = t;
+    // critically-ish damped spring, sub-stepped for stability
+    for (let i = 0; i < 4; i++) {
+      const h = dt / 4;
+      v += (95 * (target - x) - 15.5 * v) * h;
+      x += v * h;
+    }
+    hover += (hoverT - hover) * (1 - Math.exp(-dt * 9));
+    press += (pressT - press) * (1 - Math.exp(-dt * 18));
+    const settled = Math.abs(target - x) < .0004 && Math.abs(v) < .004 &&
+                    Math.abs(hoverT - hover) < .002 && Math.abs(pressT - press) < .002;
+    if (settled) { x = target; v = 0; hover = hoverT; press = pressT; }
+    render();
+    raf = settled ? 0 : requestAnimationFrame(tick);
+  }
+
+  // ---- render --------------------------------------------------------------
+  function render() {
+    const p = clamp(x), speed = Math.min(1, Math.abs(v) / 4.5);
+    const glow = mix3(...GLOW, p), core = mix3(...CORE, p);
+    stage.style.setProperty('--p', p.toFixed(4));
+    stage.style.setProperty('--glow', glow.map(n => n | 0).join(' '));
+
+    // knob: slides, stretches with speed, squashes a little when pressed
+    const kw = KNOB + 24 * speed + 12 * press;
+    const kcx = lerp(PAD + KNOB / 2, W - PAD - KNOB / 2, x);
+    const kx = clamp(kcx - kw / 2, 9, W - 9 - kw);
+    const ky = PAD;
+    knobEl.style.width = kw + 'px';
+    knobEl.style.transform = `translate3d(${kx}px,0,0)`;
+
+    // light arc riding the knob's rim
+    const gap = lerp(2.5, 7, p);
+    const at = perimeter(kx - gap, ky - gap, kw + 2 * gap, KNOB + 2 * gap, KR + gap);
+    const u0 = lerp(lerp(-.155, 0, hover), lerp(.395, .43, hover), clamp(x, -.06, 1.06));
+    const span = .25 + .11 * speed;
+    const N = 72, pts = [];
+    for (let i = 0; i <= N; i++) pts.push(at(u0 + (i / N - .5) * span));
+    const mid = at(u0);
+    ambient.style.transform = `translate(${mid[0]}px,${mid[1]}px)`;
+
+    ctx.setTransform(K, 0, 0, K, M * K, M * K);
+    ctx.clearRect(-M, -M, W + 2 * M, H + 2 * M);
+    ctx.lineCap = ctx.lineJoin = 'round';
+
+    // wash of light on the knob face
+    ctx.save();
+    ctx.beginPath(); rrect(ctx, kx, ky, kw, KNOB, KR); ctx.clip();
+    const g = ctx.createRadialGradient(mid[0], mid[1], 0, mid[0], mid[1], 170);
+    g.addColorStop(0, rgba(glow, lerp(.46, .72, p)));
+    g.addColorStop(.45, rgba(glow, lerp(.16, .30, p)));
+    g.addColorStop(1, rgba(glow, 0));
+    ctx.fillStyle = g; ctx.fillRect(kx, ky, kw, KNOB);
+    ctx.restore();
+
+    // halo: blurred copies of the arc, rendered as shadow only (shape parked off-canvas),
+    // then composited strong outside the knob and faint on its face
+    const OFF = 4000;
+    hctx.setTransform(K, 0, 0, K, M * K, M * K);
+    hctx.clearRect(-M, -M, W + 2 * M, H + 2 * M);
+    hctx.lineCap = hctx.lineJoin = 'round';
+    hctx.translate(-OFF, 0); hctx.shadowOffsetX = OFF * K;
+    for (const [lw, blur, a, trim] of [[26, 72, .9, 12], [16, 34, 1, 9], [9, 14, 1, 5], [5, 5, 1, 3]]) {
+      hctx.shadowBlur = blur * K;
+      hctx.shadowColor = rgba(glow, a);
+      hctx.lineWidth = lw;
+      hctx.beginPath();
+      for (let i = trim; i <= N - trim; i++) hctx.lineTo(pts[i][0], pts[i][1]);
+      hctx.stroke();
+    }
+    for (const inside of [false, true]) {
+      ctx.save();
+      ctx.beginPath();
+      if (!inside) ctx.rect(-M, -M, W + 2 * M, H + 2 * M);
+      rrect(ctx, kx, ky, kw, KNOB, KR);
+      ctx.clip('evenodd');
+      ctx.globalAlpha = inside ? .35 : 1;
+      ctx.drawImage(haloCanvas, -M, -M, W + 2 * M, H + 2 * M);
+      if (!inside) { ctx.globalAlpha = lerp(.85, .15, p); ctx.drawImage(haloCanvas, -M, -M, W + 2 * M, H + 2 * M); }
+      ctx.restore();
+    }
+
+    // core filament, tapered towards both ends
+    for (let i = 0; i < N; i++) {
+      const w = Math.pow(Math.sin(Math.PI * (i + .5) / N), .7);
+      ctx.strokeStyle = rgba(core, Math.min(1, w * 1.25));
+      ctx.lineWidth = .5 + 2.6 * w;
+      ctx.beginPath(); ctx.moveTo(pts[i][0], pts[i][1]); ctx.lineTo(pts[i + 1][0], pts[i + 1][1]); ctx.stroke();
+    }
+
+    // dot-matrix moon <-> sun
+    const ox = kx + kw / 2, oy = ky + KNOB / 2;
+    for (const d of particles) {
+      const q = ease(clamp((p - d.delay) / (1 - .42)));
+      const arc = Math.sin(Math.PI * q);
+      let px = lerp(d.m.x, d.s.x, q) * CELL, py = lerp(d.m.y, d.s.y, q) * CELL;
+      const rot = d.spin * arc, c = Math.cos(rot), s = Math.sin(rot);
+      [px, py] = [px * c - py * s + d.dx * d.amp * arc, px * s + py * c + d.dy * d.amp * arc];
+      const a = lerp(d.m.a, d.s.a, q) * (1 - .25 * arc);
+      if (a < .01) continue;
+      const size = lerp(d.m.s, d.s.s, q) * (1 - .3 * arc);
+      ctx.fillStyle = rgba(DOT[0].map((n, i) => lerp(n, DOT[1][i], q)), a);
+      ctx.fillRect(ox + px - size / 2, oy + py - size / 2, size, size);
+    }
+  }
+
+  // ---- input ---------------------------------------------------------------
+  btn.addEventListener('click', () => setTheme(target ? 0 : 1));
+  btn.addEventListener('pointerenter', () => { hoverT = 1; kick(); });
+  btn.addEventListener('pointerleave', () => { hoverT = 0; pressT = 0; kick(); });
+  btn.addEventListener('pointerdown', () => { pressT = 1; kick(); });
+  addEventListener('pointerup', () => { pressT = 0; kick(); });
+  btn.addEventListener('focus', () => { if (btn.matches(':focus-visible')) { hoverT = 1; kick(); } });
+  btn.addEventListener('blur', () => { hoverT = 0; kick(); });
+  addEventListener('resize', resize);
+
+  // test hook: freeze the switch at an arbitrary progress
+  window.__themeSwitch = { set(px, h = 0) { x = px; v = 0; target = Math.round(clamp(px)); hover = hoverT = h; render(); } };
+
+  btn.setAttribute('aria-checked', String(!!target));
+  document.documentElement.dataset.theme = target ? 'light' : 'dark';
+  resize();
+})();
+</script>
+</body>
+</html>
